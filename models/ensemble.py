@@ -8,9 +8,18 @@ Falls back to heuristic when no trained model exists.
 from __future__ import annotations
 import os
 import pickle
+import warnings
 import numpy as np
 from dataclasses import dataclass
 from utils.logger import logger
+
+# LGBMClassifier trained with DataFrame columns — inference uses numpy array.
+# validate_features=False skips check but sklearn still emits the UserWarning.
+warnings.filterwarnings(
+    "ignore",
+    message="X does not have valid feature names",
+    category=UserWarning,
+)
 
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "cache")
 

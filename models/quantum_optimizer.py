@@ -5,8 +5,15 @@ Also provides a Quantum Random Walk for probabilistic scenario simulation.
 Falls back gracefully to classical scipy optimizer if Qiskit unavailable.
 """
 from __future__ import annotations
+import warnings
 import numpy as np
 from utils.logger import logger
+
+# Qiskit QAOA uses scipy sparse internals — cosmetic warnings, no impact
+warnings.filterwarnings("ignore", category=UserWarning, module="scipy.sparse")
+warnings.filterwarnings("ignore", message="splu converted", module="scipy")
+warnings.filterwarnings("ignore", message="spsolve is more efficient", module="scipy")
+warnings.filterwarnings("ignore", message="Changing the sparsity structure", module="scipy")
 
 try:
     from qiskit import QuantumCircuit

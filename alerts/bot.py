@@ -113,14 +113,9 @@ class TelegramAlerter:
 
     # ── System status message ─────────────────────────────────────────────────
     def send_status(self, message: str) -> None:
-        async def _send():
-            await self.bot.send_message(chat_id=self.chat_id, text=f"ℹ️ {message}")
-
-        if self.bot:
-            try:
-                asyncio.run(_send())
-            except Exception as e:
-                logger.error(f"Status send failed: {e}")
+        # Use _send_raw (sync requests) — asyncio.run() fails after tensorflow
+        # closes the event loop during model training.
+        self._send_raw(f"ℹ️ {message}")
 
     # ── Démarrage ─────────────────────────────────────────────────────────────
     def send_startup(self, mode: str) -> None:

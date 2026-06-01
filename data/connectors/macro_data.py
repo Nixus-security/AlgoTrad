@@ -4,16 +4,19 @@ Sources: FRED (rates, CPI), yfinance (earnings), NewsAPI (sentiment).
 """
 from __future__ import annotations
 import os
+import time
 import datetime
 import requests
 import pandas as pd
 from utils.logger import logger
 
-FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
+FRED_BASE    = "https://api.stlouisfed.org/fred/series/observations"
+_FRED_TTL    = 3600   # cache FRED responses 1 hour — macro data is daily
 
 
 class MacroDataConnector:
     _fred_key_warned = False
+    _snapshot_cache: dict = {"ts": 0.0, "data": {}}   # class-level shared cache
 
     def __init__(self):
         self.fred_key = os.getenv("FRED_API_KEY", "")
@@ -52,7 +55,10 @@ class MacroDataConnector:
 
     # ── Macro context snapshot ─────────────────────────────────────────────────
     def get_macro_snapshot(self) -> dict:
-        """Returns dict of current key macro indicators."""
+        """Returns dict of current key macro indicators. Cached 1 hour."""
+        if time.time() - MacroDataConnector._snapshot_cache["ts"] < _FRED_TTL:
+            return MacroDataConnector._snapshot_cache["data"]
+
         snap = {}
         series = {"fed_rate": "DFF", "yield_spread": "T10Y2Y", "cpi": "CPIAUCSL"}
         for name, sid in series.items():
@@ -62,6 +68,13 @@ class MacroDataConnector:
             except Exception as e:
                 logger.error(f"FRED {sid}: {e}")
                 snap[name] = None
+
+        # Only cache if at least one value fetched successfully
+        if any(v is not None for v in snap.values()):
+            MacroDataConnector._snapshot_cache = {"ts": time.time(), "data": snap}
+            logger.debug(f"FRED macro snapshot refreshed: {snap}")
+        else:
+            logger.debug("FRED snapshot all None — not cached, will retry next cycle")
         return snap
 
     # ── News sentiment score ──────────────────────────────────────────────────
