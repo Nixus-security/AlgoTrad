@@ -1,0 +1,32 @@
+[Unit]
+Description=AlgoTrad paper trading bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=antho
+WorkingDirectory=/home/antho/AlgoTrad
+ExecStart=/home/antho/AlgoTrad/.venv/bin/python main.py --paper
+Restart=on-failure
+RestartSec=30
+# Cap restarts: 5 failures in 10 minutes → systemd gives up (prevents OOM loop)
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+# Load secrets from .env file
+EnvironmentFile=/home/antho/AlgoTrad/.env
+
+# Logging goes to journald (use: journalctl -u algotrad -f)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=algotrad
+
+# Give the process time to send Telegram shutdown alert on stop
+TimeoutStopSec=30
+
+# Watchdog: restart if process hangs silently for 10 minutes
+WatchdogSec=600
+
+[Install]
+WantedBy=multi-user.target

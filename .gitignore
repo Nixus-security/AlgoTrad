@@ -1,0 +1,31 @@
+# Secrets
+.env
+
+# Virtual environment
+.venv/
+venv/
+.venv
+# Claude
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# ML model binaries (trained locally — use sync_models.sh to transfer to VPS)
+cache/
+*.keras
+*.h5
+*.pkl
+
+# Runtime / logs
+logs/
+backups/
+KILL_SWITCH
+KILL_SWITCH_DAILY
+models/last_train.txt
+
+# OS
+.DS_Store
+*.png
