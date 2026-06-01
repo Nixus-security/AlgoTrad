@@ -29,8 +29,9 @@ from strategies.volume_profile import (
     compute_cvd,
 )
 
-CAPITAL           = 8_871.0
-RISK_PER_TRADE    = CAPITAL * 0.01    # 88.71
+_DEFAULT_CAPITAL  = 8_871.0           # overridden by settings.yaml strategies.swing.capital
+CAPITAL           = _DEFAULT_CAPITAL  # kept for backward compat — use self.risk_per_trade
+RISK_PER_TRADE    = CAPITAL * 0.01    # 88.71 — overridden in __init__ from cfg
 RR_RATIO          = 2.0
 MAX_TRADES_WEEK   = 5
 
@@ -79,6 +80,10 @@ class SwingTradingStrategy:
         self.breakout_vol_mult  = float(s.get("breakout_vol_mult",_DEFAULT_BREAKOUT_VOL_MULT))
         self.breakout_pct       = float(s.get("breakout_pct",     _DEFAULT_BREAKOUT_PCT))
         self.min_confluence     = int(s.get("min_confluence",     _DEFAULT_MIN_CONFLUENCE))
+        # Capital from settings.yaml (not hardcoded) — avoids desync when capital changes
+        capital           = float(s.get("capital", _DEFAULT_CAPITAL))
+        risk_pct          = float(s.get("risk_pct", 0.01))
+        self.risk_per_trade = capital * risk_pct
         # Weekly trade counter
         self._week_key: str    = ""
         self._trades_this_week = 0
@@ -171,13 +176,14 @@ class SwingTradingStrategy:
                 if conf >= self.min_confluence:
                     sl = _clamp_sl_long(val - atr, price, atr)
                     tp = price + (price - sl) * RR_RATIO
-                    ps = RISK_PER_TRADE / max(price - sl, 0.01)
+                    ps = self.risk_per_trade / max(price - sl, 0.01)
                     return _make(
                         ticker, "BUY", price, sl, tp, conf, "val_rejection",
                         poc, vah, val, vwap, bull_div, True, vol_ratio, atr,
                         is_balancing, ps,
                         extra={"price_vs_val": round(price - val, 4),
                                "cvd_chg_5d": round(float(cvd_5.iloc[-1] - cvd_5.iloc[0]), 0)},
+                        risk_per_trade=self.risk_per_trade,
                     )
 
         # ──────────────────────────────────────────────────────────────────────
@@ -189,13 +195,14 @@ class SwingTradingStrategy:
                 if conf >= self.min_confluence:
                     sl = _clamp_sl_short(vah + atr, price, atr)
                     tp = price - (sl - price) * RR_RATIO
-                    ps = RISK_PER_TRADE / max(sl - price, 0.01)
+                    ps = self.risk_per_trade / max(sl - price, 0.01)
                     return _make(
                         ticker, "SELL", price, sl, tp, conf, "vah_rejection",
                         poc, vah, val, vwap, bear_div, True, vol_ratio, atr,
                         is_balancing, ps,
                         extra={"price_vs_vah": round(price - vah, 4),
                                "cvd_chg_5d": round(float(cvd_5.iloc[-1] - cvd_5.iloc[0]), 0)},
+                        risk_per_trade=self.risk_per_trade,
                     )
 
         # ──────────────────────────────────────────────────────────────────────
@@ -206,13 +213,14 @@ class SwingTradingStrategy:
             if vol_ratio >= self.breakout_vol_mult and float(cvd.iloc[-1]) > float(cvd.iloc[-2]):
                 sl = _clamp_sl_long(poc - 0.5 * atr, price, atr)
                 tp = price + (price - sl) * RR_RATIO
-                ps = RISK_PER_TRADE / max(price - sl, 0.01)
+                ps = self.risk_per_trade / max(price - sl, 0.01)
                 return _make(
                     ticker, "BUY", price, sl, tp, 3, "poc_breakout",
                     poc, vah, val, vwap, False, vd_last > 0, vol_ratio, atr,
                     is_balancing, ps,
                     extra={"vol_ratio": round(vol_ratio, 2),
                            "breakout_pct": round((price - poc) / poc, 4)},
+                    risk_per_trade=self.risk_per_trade,
                 )
 
         # ──────────────────────────────────────────────────────────────────────
@@ -223,13 +231,14 @@ class SwingTradingStrategy:
             if vol_ratio >= self.breakout_vol_mult and float(cvd.iloc[-1]) < float(cvd.iloc[-2]):
                 sl = _clamp_sl_short(poc + 0.5 * atr, price, atr)
                 tp = price - (sl - price) * RR_RATIO
-                ps = RISK_PER_TRADE / max(sl - price, 0.01)
+                ps = self.risk_per_trade / max(sl - price, 0.01)
                 return _make(
                     ticker, "SELL", price, sl, tp, 3, "poc_breakdown",
                     poc, vah, val, vwap, False, vd_last < 0, vol_ratio, atr,
                     is_balancing, ps,
                     extra={"vol_ratio": round(vol_ratio, 2),
                            "breakdown_pct": round((poc - price) / poc, 4)},
+                    risk_per_trade=self.risk_per_trade,
                 )
 
         return None
@@ -264,9 +273,10 @@ def _clamp_sl_short(sl_raw, price, atr) -> float:
 def _make(
     ticker, direction, entry, sl, tp, conf, setup_type,
     poc, vah, val, vwap, cvd_div, vd_conf, vol_ratio, atr, balancing,
-    pos_size, extra: dict,
+    pos_size, extra: dict, risk_per_trade: float = RISK_PER_TRADE,
 ) -> SwingSignal:
-    confidence = float(np.clip(0.55 + conf * 0.08, 0.55, 0.95))
+    # conf ∈ [0,4] → confidence ∈ [0.55, 0.95] with mult=0.10 (was 0.08→max 0.87)
+    confidence = float(np.clip(0.55 + conf * 0.10, 0.55, 0.95))
     return SwingSignal(
         ticker                 = ticker,
         direction              = direction,
@@ -274,7 +284,7 @@ def _make(
         stop_loss              = round(sl, 4),
         take_profit            = round(tp, 4),
         confidence             = confidence,
-        risk_amount            = RISK_PER_TRADE,
+        risk_amount            = risk_per_trade,
         position_size_shares   = round(pos_size, 2),
         setup_type             = setup_type,
         confluence_score       = conf,

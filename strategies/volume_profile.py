@@ -103,6 +103,39 @@ def compute_vwap(df: pd.DataFrame) -> pd.Series:
     return (cum_tpv / cum_vol).rename("vwap")
 
 
+def compute_session_vwap(df: pd.DataFrame, session_bars: int = 24) -> pd.Series:
+    """
+    Session-anchored VWAP for day trading — anchored to start of current session.
+
+    For Forex/Gold 1H data: uses last `session_bars` bars (default 24 = 1 trading day).
+    Avoids the multi-day VWAP drift that makes compute_vwap() useless for intraday signals.
+
+    If df has a DatetimeIndex, tries to anchor to today's UTC midnight.
+    Falls back to tail(session_bars) if index is not datetime.
+    """
+    if isinstance(df.index, pd.DatetimeIndex):
+        # Match timezone of index — avoid tz-aware vs tz-naive comparison error
+        if df.index.tz is not None:
+            today_utc = pd.Timestamp.utcnow().normalize().tz_convert(df.index.tz)
+        else:
+            today_utc = pd.Timestamp.utcnow().normalize().tz_localize(None)
+        # Try today's bars; fall back to last session_bars
+        today_bars = df[df.index.normalize() >= today_utc]
+        session_df = today_bars if len(today_bars) >= 3 else df.tail(session_bars)
+    else:
+        session_df = df.tail(session_bars)
+
+    tp      = (session_df["high"] + session_df["low"] + session_df["close"]) / 3.0
+    cum_tpv = (tp * session_df["volume"]).cumsum()
+    cum_vol = session_df["volume"].cumsum().replace(0, np.nan)
+    session_vwap = (cum_tpv / cum_vol).rename("vwap")
+
+    # Reindex to full df: forward-fill before session = NaN, within session = real value
+    return session_vwap.reindex(df.index).ffill().fillna(
+        float(session_vwap.iloc[-1]) if not session_vwap.empty else np.nan
+    )
+
+
 # ─── Volume Delta ─────────────────────────────────────────────────────────────
 
 def compute_volume_delta(df: pd.DataFrame) -> pd.Series:

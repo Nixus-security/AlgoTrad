@@ -41,15 +41,17 @@ def _btc_regime() -> bool:
         btc = yf.download("BTC-USD", period="30d", interval="1d",
                           auto_adjust=True, progress=False)
         if btc.empty or len(btc) < 20:
-            return True   # fallback permissif
+            logger.warning("BTC regime: insufficient data — fail-closed (no signal)")
+            return False   # fail-closed: block signals on uncertainty
         close = btc["Close"].squeeze()
         above = bool(float(close.iloc[-1]) > float(close.rolling(20).mean().iloc[-1]))
         _btc_cache = {"ts": time.time(), "above_ma20": above}
         logger.info(f"Régime BTC: {'HAUSSIER' if above else 'BAISSIER'} "
                     f"(price={close.iloc[-1]:.2f} vs MA20={close.rolling(20).mean().iloc[-1]:.2f})")
         return above
-    except Exception:
-        return True   # fallback permissif si yfinance échoue
+    except Exception as _e:
+        logger.warning(f"BTC regime fetch failed ({_e}) — fail-closed (no signal)")
+        return False   # fail-closed: never trade on yfinance error
 
 load_dotenv()
 
@@ -138,7 +140,9 @@ def build_components() -> dict:
         "trade_analyzer":  TradeAnalyzer(CFG),
         "risk":            RiskManager(CFG),
         "kill":         KillSwitch(
-            max_daily_loss_pct=CFG["risk"].get("max_daily_drawdown_pct", 0.02) / 100,
+            # settings.yaml: max_daily_drawdown_pct = 3.0 (%) → divide by 100 → 0.03
+            # Default 3.0 not 0.02 — 0.02/100=0.0002% would trigger at $1.77 loss
+            max_daily_loss_pct=CFG["risk"].get("max_daily_drawdown_pct", 3.0) / 100,
             max_daily_trades=CFG["risk"].get("max_signals_per_day", 20),
         ),
         "telegram":     TelegramAlerter(CFG),
@@ -396,6 +400,17 @@ def train_models(C: dict) -> None:
     if X_ens_all:
         X_e = np.concatenate(X_ens_all).astype(np.float32)
         y_e = np.concatenate(y_ens_all)
+        # Drop dead features identified by LGB (importance=0 on last training run)
+        # Feature order: rvol(0) spread_pct(1) liquidity(2) gap_pct(3) gap_str(4)
+        #   vwap_pos(5) mom_1h(6) mom_str(7) wick_up(8) wick_dn(9)
+        #   vol_z(10) vol_trend(11) bk_str(12) fake_bk(13) vol_pct(14)
+        #   catalyst(15) sentiment(16) fomo(17) squeeze(18)
+        # Dead: 0,1,2,4,5,10,11,15,16,17,18 → keep: 3,6,7,8,9,12,13,14
+        _LIVE_FEATURES = [3, 6, 7, 8, 9, 12, 13, 14]   # gap_pct mom_1h mom_str wick_up wick_dn bk_str fake_bk vol_pct
+        if X_e.shape[1] > max(_LIVE_FEATURES):
+            X_e = X_e[:, _LIVE_FEATURES]
+            logger.info(f"Ensemble: using {len(_LIVE_FEATURES)}/19 live features "
+                        f"(dropped 11 zero-importance features from prev training)")
         logger.info(f"Training ensemble on {len(X_e)} samples")
         results = C["ensemble"].train(X_e, y_e)
         logger.info(f"Ensemble training: {results}")

@@ -31,6 +31,7 @@ from utils.logger import logger
 from strategies.volume_profile import (
     compute_volume_profile,
     compute_vwap,
+    compute_session_vwap,
     compute_volume_delta,
     compute_cvd,
     compute_orderflow_score,
@@ -189,17 +190,31 @@ class DayTradingForexStrategy:
 
         price = float(df_1h["close"].iloc[-1])
 
-        # 4H directional bias: both VWAP position AND CVD slope must align
-        if cvd_4h_slope > 0 and price > vwap_4h:
+        # 4H directional bias: VWAP position + CVD slope must align
+        # CVD slope must be meaningful vs total CVD (≥1% of |total|) to avoid
+        # triggering SELL in strong bull trends on tiny short-term pullbacks
+        cvd_total     = float(cvd_4h.iloc[-1])
+        slope_min_pct = 0.01   # slope must be ≥1% of |total CVD| to count
+        slope_meaningful = (
+            abs(cvd_total) < 1 or                           # avoid div/zero on flat markets
+            abs(cvd_4h_slope) >= abs(cvd_total) * slope_min_pct
+        )
+
+        if cvd_4h_slope > 0 and price > vwap_4h and slope_meaningful:
             bias = "bullish"
-        elif cvd_4h_slope < 0 and price < vwap_4h:
+        elif cvd_4h_slope < 0 and price < vwap_4h and slope_meaningful:
             bias = "bearish"
         else:
-            logger.debug(f"DayTrading [{ticker}]: 4H bias neutral — skip")
+            logger.debug(
+                f"DayTrading [{ticker}]: 4H bias neutral — "
+                f"slope={cvd_4h_slope:+.0f} vs total={cvd_total:+.0f} "
+                f"meaningful={slope_meaningful}"
+            )
             return None
 
         # ── 1H Execution ─────────────────────────────────────────────────────
-        vwap_1h  = float(compute_vwap(df_1h).iloc[-1])
+        # Session VWAP (today only) — not 30-day anchored VWAP
+        vwap_1h  = float(compute_session_vwap(df_1h).iloc[-1])
         vd_1h    = compute_volume_delta(df_1h)
         cvd_1h   = compute_cvd(df_1h)
         vd_last  = float(vd_1h.iloc[-1])

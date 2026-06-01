@@ -82,7 +82,9 @@ def _print_dt(sig: DayTradingSignal) -> None:
         f"  R:R    : 1:{rr:.2f}  |  Lot: {sig.lot_size}\n"
         f"  Conf   : {sig.confidence:.1%}  |  Confluence: {sig.confluence_score}/5\n"
         f"  CVD bias: {sig.cvd_bias_4h}  |  OF score: {sig.orderflow_score:+.3f}\n"
-        f"  POC_4H={sig.poc_4h:.5f}  VWAP_4H={sig.vwap_4h:.5f}  VWAP_1H={sig.vwap_1h:.5f}"
+        f"  POC_4H={sig.poc_4h:.5f}  VWAP_4H={sig.vwap_4h:.5f}  VWAP_1H={sig.vwap_1h:.5f}\n"
+        + (f"  DXY bias: {sig.dxy_bias}  slope={sig.dxy_slope_pct:+.3f}%"
+           if sig.dxy_bias is not None else "")
     )
 
 
@@ -149,6 +151,21 @@ def test_swing(force: bool = False, run_broker: bool = False) -> None:
 
             sig = strategy.analyse(ticker, df)
             if sig:
+                # ── Assertions ────────────────────────────────────────────────
+                assert sig.direction in ("BUY", "SELL"),          f"direction invalid: {sig.direction}"
+                assert sig.confidence >= 0.50,                    f"confidence too low: {sig.confidence}"
+                assert sig.risk_amount > 0,                       f"risk_amount zero/negative"
+                assert sig.stop_loss != sig.entry,                f"SL == entry"
+                assert sig.take_profit != sig.entry,              f"TP == entry"
+                if sig.direction == "BUY":
+                    assert sig.stop_loss < sig.entry,             f"BUY: SL {sig.stop_loss} >= entry {sig.entry}"
+                    assert sig.take_profit > sig.entry,           f"BUY: TP {sig.take_profit} <= entry {sig.entry}"
+                else:
+                    assert sig.stop_loss > sig.entry,             f"SELL: SL {sig.stop_loss} <= entry {sig.entry}"
+                    assert sig.take_profit < sig.entry,           f"SELL: TP {sig.take_profit} >= entry {sig.entry}"
+                rr = abs(sig.take_profit - sig.entry) / max(abs(sig.entry - sig.stop_loss), 1e-9)
+                assert rr >= 1.5,                                 f"R:R {rr:.2f} < 1.5"
+                # ──────────────────────────────────────────────────────────────
                 _print_swing(sig)
                 signals_found += 1
                 if broker:
@@ -207,8 +224,37 @@ def test_daytrading(force: bool = False, run_broker: bool = False) -> None:
             _vp_report(df_4h.tail(20), "4H VP")
             _vp_report(df_1h.tail(20), "1H VP")
 
-            sig = strategy.analyse(ticker, df_4h, df_1h)
+            # Fetch DXY for Gold (inverse correlation filter)
+            df_dxy = None
+            if ticker == "GC=F":
+                try:
+                    df_dxy = MARKET.get_ohlcv("DX-Y.NYB", "1h", "10d")
+                    if df_dxy is not None and len(df_dxy) >= 8:
+                        dxy_now   = float(df_dxy["close"].iloc[-1])
+                        dxy_slope = (dxy_now - float(df_dxy["close"].iloc[-6])) / dxy_now * 100
+                        print(f"  DXY: {dxy_now:.2f}  slope(6h)={dxy_slope:+.3f}%  "
+                              f"({'bearish→Gold bullish' if dxy_slope < 0 else 'bullish→Gold bearish'})")
+                    else:
+                        df_dxy = None
+                except Exception:
+                    df_dxy = None
+
+            sig = strategy.analyse(ticker, df_4h, df_1h, df_dxy_1h=df_dxy)
             if sig:
+                # ── Assertions ────────────────────────────────────────────────
+                assert sig.direction in ("BUY", "SELL"),   f"direction: {sig.direction}"
+                assert sig.confidence >= 0.50,             f"confidence: {sig.confidence}"
+                assert sig.lot_size > 0,                   f"lot_size zero"
+                assert sig.pip_risk > 0,                   f"pip_risk zero"
+                if sig.direction == "BUY":
+                    assert sig.stop_loss < sig.entry,      f"BUY: SL >= entry"
+                    assert sig.take_profit > sig.entry,    f"BUY: TP <= entry"
+                else:
+                    assert sig.stop_loss > sig.entry,      f"SELL: SL <= entry"
+                    assert sig.take_profit < sig.entry,    f"SELL: TP >= entry"
+                rr = abs(sig.take_profit - sig.entry) / max(abs(sig.entry - sig.stop_loss), 1e-9)
+                assert rr >= 1.5,                          f"R:R {rr:.2f} < 1.5"
+                # ──────────────────────────────────────────────────────────────
                 _print_dt(sig)
                 signals_found += 1
                 if broker:
@@ -271,6 +317,17 @@ def test_scalping(force: bool = False, run_broker: bool = False) -> None:
             strategy._bars_since_open = AVOID_OPEN_BARS + 1   # bypass open filter
             sig = strategy.analyse.__func__(strategy, ticker, df_window)  # type: ignore
             if sig:
+                # ── Assertions ────────────────────────────────────────────────
+                assert sig.direction in ("BUY", "SELL"),   f"direction: {sig.direction}"
+                assert sig.confidence >= 0.50,             f"confidence: {sig.confidence}"
+                assert sig.contracts > 0,                  f"contracts zero"
+                if sig.direction == "BUY":
+                    assert sig.stop_loss < sig.entry,      f"BUY: SL >= entry"
+                    assert sig.take_profit > sig.entry,    f"BUY: TP <= entry"
+                else:
+                    assert sig.stop_loss > sig.entry,      f"SELL: SL <= entry"
+                    assert sig.take_profit < sig.entry,    f"SELL: TP >= entry"
+                # ──────────────────────────────────────────────────────────────
                 _print_scalp(sig)
                 signals_found += 1
                 if broker and signals_found == 1:
@@ -312,6 +369,8 @@ def main() -> None:
                         help="Lower confluence/filters to 0 — forces signal generation")
     parser.add_argument("--broker", action="store_true",
                         help="Also simulate paper broker execution on each signal")
+    parser.add_argument("--ticker", type=str, default=None,
+                        help="Test single ticker only (e.g. GC=F, EURUSD=X)")
     args = parser.parse_args()
 
     print("\n" + "═" * 62)
@@ -319,7 +378,14 @@ def main() -> None:
     print("  Data source : yfinance (real market data)")
     print(f"  Force mode  : {'ON — filters bypassed' if args.force else 'OFF'}")
     print(f"  Broker sim  : {'ON — paper execution' if args.broker else 'OFF'}")
+    if args.ticker:
+        print(f"  Ticker filter: {args.ticker}")
     print("═" * 62)
+
+    # Inject single-ticker filter into CFG for day trading
+    if args.ticker:
+        CFG.setdefault("strategies", {}).setdefault("day_trading", {})["tickers"] = [args.ticker]
+        CFG.setdefault("strategies", {}).setdefault("swing", {})["tickers"] = [args.ticker]
 
     run_all = args.strategy is None
     if run_all or args.strategy == 1:

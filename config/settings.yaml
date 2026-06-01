@@ -75,19 +75,24 @@ gemini:
 
 # ─── Signal fusion weights (overridden by QAOA at runtime) ───────────────────
 signal_weights:
-  technical: 0.20        # 0.25 → 0.20
-  ml_prediction: 0.25    # 0.30 → 0.25
+  # Calibrated from OOS training results (2026-06-02):
+  # XGB best_iter=14 OOS=50.9%  LGB best_iter=2 OOS=50.6% → ensemble ≈ bruit
+  # LSTM OOS=54.6% gap=-0.027 → signal propre, poids maintenu
+  # Gemini NLP + TA rule-based = sources fiables → poids renforcés
+  technical: 0.25        # renforcé (rule-based VP/VWAP/CVD = signal fort)
+  ml_prediction: 0.25    # maintenu (LSTM OOS=54.6%)
   statistical: 0.15
-  fundamental: 0.10
-  ensemble: 0.15
-  nlp: 0.15              # 0.05 → 0.15 (Gemini = signal beaucoup plus fiable)
+  fundamental: 0.05      # réduit (FRED macro = daily, peu actionnable intraday)
+  ensemble: 0.05         # réduit 0.15→0.05 (XGB/LGB OOS ≈ random)
+  nlp: 0.25              # renforcé (Gemini fiable sur catalysts)
 
 # ─── Backtesting ──────────────────────────────────────────────────────────────
 backtest:
-  start_date: "2021-01-01"   # BTC bear/bull cycle coverage
+  start_date: "2019-01-01"   # 5+ years — covers 2019 bull, 2020 crash, 2021 bull, 2022 bear, 2023-24 recovery
   end_date: "2024-12-31"
   initial_capital: 9000
   commission_pct: 0.001
+  slippage_pct: 0.0008        # 0.08% — matches paper broker (realistic metrics)
   walk_forward_splits: 5
 
 # ─── Logging ──────────────────────────────────────────────────────────────────

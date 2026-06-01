@@ -77,7 +77,8 @@ class BacktestEngine:
         trades = []
         equity = [capital]
         position = None
-        commission = self.bt_cfg["commission_pct"]
+        commission   = self.bt_cfg["commission_pct"]
+        slippage_pct = self.bt_cfg.get("slippage_pct", 0.0008)  # 0.08% — matches paper broker
 
         for i in range(60, len(df)):
             window = df.iloc[: i + 1]
@@ -91,9 +92,12 @@ class BacktestEngine:
             if position is None and ta_sig.direction in ("BUY", "SELL"):
                 # Require both TA + stat to agree (anti-overfitting filter)
                 if ta_sig.direction == stat_sig.direction or stat_sig.direction == "NEUTRAL":
+                    # Apply slippage on entry (adverse fill)
+                    slip = price * slippage_pct
+                    fill = price + slip if ta_sig.direction == "BUY" else price - slip
                     position = {
                         "direction": ta_sig.direction,
-                        "entry": price,
+                        "entry": fill,
                         "stop": price - atr * 1.5 if ta_sig.direction == "BUY"
                                 else price + atr * 1.5,
                         "target": price + atr * 3 if ta_sig.direction == "BUY"
@@ -115,7 +119,10 @@ class BacktestEngine:
                 timeout = (i - position["open_idx"]) >= 24
 
                 if hit_stop or hit_target or timeout:
-                    pnl_pct = (price - position["entry"]) / position["entry"]
+                    # Apply slippage on exit (adverse fill)
+                    slip_exit = price * slippage_pct
+                    exit_fill = price - slip_exit if position["direction"] == "BUY" else price + slip_exit
+                    pnl_pct = (exit_fill - position["entry"]) / position["entry"]
                     if position["direction"] == "SELL":
                         pnl_pct = -pnl_pct
                     pnl_pct -= commission * 2  # Round-trip

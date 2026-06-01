@@ -100,16 +100,43 @@ class MLPredictor:
             val_accuracies.append(acc)
             logger.info(f"Fold {fold+1} val_accuracy={acc:.4f}")
 
-        # Retrain final model on all data
+        # Final model: train on 80%, validate on last 20% (temporal OOS)
+        # Avoids overfitting to ALL data — consistent with ensemble approach
+        n_oos = max(int(len(X) * 0.20), 100)
+        X_tr_final, X_val_final = X[:-n_oos], X[-n_oos:]
+        y_tr_final, y_val_final = y[:-n_oos], y[-n_oos:]
+
         self.model = build_model(timesteps, n_features,
                                  cfg["lstm_units"], cfg["dropout"])
-        self.model.fit(X, y, epochs=cfg["epochs"], batch_size=cfg["batch_size"],
-                       callbacks=[EarlyStopping(monitor="loss", patience=7, restore_best_weights=True)],
-                       verbose=0)
+        self.model.fit(
+            X_tr_final, y_tr_final,
+            validation_data=(X_val_final, y_val_final),
+            epochs=cfg["epochs"],
+            batch_size=cfg["batch_size"],
+            callbacks=[
+                EarlyStopping(patience=8, restore_best_weights=True,
+                              monitor="val_accuracy"),
+                ReduceLROnPlateau(patience=4, factor=0.4, min_lr=1e-5,
+                                  monitor="val_accuracy"),
+            ],
+            verbose=0,
+        )
+        _, oos_acc = self.model.evaluate(X_val_final, y_val_final, verbose=0)
+        cv_acc = float(np.mean(val_accuracies))
+        overfit_gap = cv_acc - oos_acc
+        if overfit_gap > 0.10:
+            logger.warning(
+                f"LSTM overfit gap: CV={cv_acc:.3f} OOS={oos_acc:.3f} "
+                f"gap={overfit_gap:.3f} > 0.10 — consider reducing features or dropout"
+            )
+        else:
+            logger.info(f"LSTM OOS check: CV={cv_acc:.3f}  OOS={oos_acc:.3f}  gap={overfit_gap:.3f} ✓")
         self.model.save(MODEL_PATH)
-        logger.info(f"Model saved — mean CV acc={np.mean(val_accuracies):.4f}")
-        return {"cv_accuracy": np.mean(val_accuracies),
-                "cv_std": np.std(val_accuracies)}
+        logger.info(f"Model saved — mean CV acc={cv_acc:.4f}")
+        return {"cv_accuracy": cv_acc,
+                "cv_std": float(np.std(val_accuracies)),
+                "oos_accuracy": float(oos_acc),
+                "overfit_gap": float(overfit_gap)}
 
     # ── Predict on single sequence ────────────────────────────────────────────
     def predict(self, sequence: np.ndarray) -> tuple[str, float]:
