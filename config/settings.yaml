@@ -129,7 +129,7 @@ strategies:
 
   # ── Strategy 2 : Day Trading Nasdaq (QQQ) ──────────────────────────────────
   nasdaq:
-    enabled: true
+    enabled: false   # BUY WR=20% avec Alpaca IEX — aucun edge réel
     capital: 4435.0
     risk_pct: 0.05            # 5% = ~221€ risk/trade · TP ~553€ · WARNING: 5 consec losses = -25% capital
     rr_ratio: 2.5             # 2.5 validated: Sharpe 2.53, PF 1.40, Ann 48% (precision 0.2y)
@@ -142,6 +142,7 @@ strategies:
     atr_sl_mult: 1.5
     vwap_tol: 0.001
     ticker: "QQQ"
+    leverage: 2.0             # 2x leverage — multiplies dollar_per_point in backtest/live
     require_dxy: false        # No DXY filter for equity
     blocked_setups: []        # poc_rejection block was based on Gold data — not applicable to QQQ
     sessions_utc:
@@ -162,10 +163,13 @@ strategies:
     atr_sl_mult: 1.5
     vwap_tol: 0.001
     ticker: "SPY"
+    leverage: 2.0             # 2x leverage — multiplies dollar_per_point in backtest/live
     use_dxy: false
     require_dxy: false
     blocked_setups:
       - "poc_rejection"       # poc_rejection SPY precision: WR=44% PF=0.83. vwap_pullback: WR=56% PF=1.18.
+    blocked_directions:
+      - "SELL"                # SELL SPY 2x: WR=25% PF=0.51 avg=-165€ — destructeur avec levier
     sessions_utc:
       ny: [14, 20]
 

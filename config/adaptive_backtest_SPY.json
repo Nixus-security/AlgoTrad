@@ -1,7 +1,16 @@
 {
   "ticker": "SPY",
-  "adjustments": {},
+  "adjustments": {
+    "blocked_setups": [
+      "vwap_pullback"
+    ],
+    "blocked_sessions": [
+      "ny"
+    ]
+  },
   "recommendations": [
-    "POC TRADES OUTPERFORM \u2014 at_poc WR=69% vs no_poc WR=27%. Consider requiring POC for entry."
+    "BLOCK setup 'vwap_pullback' \u2014 WR=35% PF=0.49 (96 trades)",
+    "BLOCK session 'ny' \u2014 avg_pnl=-118.82$ (98 trades)",
+    "HIGH TIMEOUT RATE 50% \u2014 many trades not hitting TP/SL within 12h. Consider widening TP or tightening SL multiplier."
   ]
 }

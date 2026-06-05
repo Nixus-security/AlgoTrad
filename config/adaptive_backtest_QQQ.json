@@ -1,7 +1,12 @@
 {
   "ticker": "QQQ",
-  "adjustments": {},
+  "adjustments": {
+    "blocked_setups": [
+      "vwap_pullback"
+    ]
+  },
   "recommendations": [
-    "HIGH TIMEOUT RATE 56% \u2014 many trades not hitting TP/SL within 12h. Consider widening TP or tightening SL multiplier."
+    "BLOCK setup 'vwap_pullback' \u2014 WR=30% PF=1.28 (10 trades)",
+    "HIGH TIMEOUT RATE 55% \u2014 many trades not hitting TP/SL within 12h. Consider widening TP or tightening SL multiplier."
   ]
 }

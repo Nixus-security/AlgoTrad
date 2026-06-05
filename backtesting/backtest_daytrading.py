@@ -75,10 +75,11 @@ class BacktestDayTrading:
         market = MarketDataConnector()
 
         # ── Precision backtest: 4H + execution TF ────────────────────────────
-        # yfinance limits: 4H → 730 days, 1H → 730 days, 15m → 60 days
+        # Alpaca: 15m → 6y available. yfinance: 15m → 60d max.
+        from data.connectors.market_data import _USE_ALPACA
         st_cfg_exec = self.cfg.get("strategies", {}).get(strategy_key, {})
         exec_tf     = st_cfg_exec.get("timeframes", {}).get("execution", "1h")
-        exec_period = "60d" if exec_tf == "15m" else "2y"
+        exec_period = ("2y" if _USE_ALPACA else "60d") if exec_tf == "15m" else "2y"
         # max_hold_bars: 12h = 12×1H bars or 48×15m bars
         max_hold = 48 if exec_tf == "15m" else MAX_HOLD_BARS
 
@@ -117,16 +118,19 @@ class BacktestDayTrading:
             except Exception as e:
                 logger.warning(f"DXY fetch failed ({e}) — filter disabled")
 
-        st_cfg  = self.cfg.get("strategies", {}).get(strategy_key, {})
-        capital = float(st_cfg.get("capital", 8871.0))
-        risk    = capital * float(st_cfg.get("risk_pct", 0.01))
+        st_cfg   = self.cfg.get("strategies", {}).get(strategy_key, {})
+        capital  = float(st_cfg.get("capital", 8871.0))
+        risk     = capital * float(st_cfg.get("risk_pct", 0.01))
+        leverage = float(st_cfg.get("leverage", 1.0))
+        if leverage != 1.0:
+            logger.info(f"Leverage x{leverage} applied — dollar_per_point × {leverage}")
 
         # ── Run precision backtest ────────────────────────────────────────────
         label_tf = f"{exec_tf} bars"
         logger.info(f"Precision backtest: {len(df_1h)} {label_tf} ({years_precision:.1f} years)")
         trades_precision, equity_curve_precision = _run_precision(
             ticker, df_4h, df_1h, df_dxy, self.cfg, strategy_key, capital, risk,
-            max_hold_bars=max_hold,
+            max_hold_bars=max_hold, leverage=leverage,
         )
 
         metrics = _metrics(trades_precision, equity_curve_precision, capital)
@@ -153,6 +157,7 @@ class BacktestDayTrading:
 def _run_precision(
     ticker, df_4h, df_1h, df_dxy, cfg, strategy_key, capital, risk,
     max_hold_bars: int = MAX_HOLD_BARS,
+    leverage: float = 1.0,
 ) -> tuple[list[dict], list[float]]:
     strategy = _BtStrategy(cfg, strategy_key)
     vp_bars  = strategy.vp_bars_4h
@@ -207,7 +212,7 @@ def _run_precision(
 
         slip  = (1 + SLIPPAGE_PCT) if sig.direction == "BUY" else (1 - SLIPPAGE_PCT)
         entry = float(bar["close"]) * slip
-        dpp   = risk / max(abs(entry - sig.stop_loss), 1e-9)
+        dpp   = risk / max(abs(entry - sig.stop_loss), 1e-9) * leverage
 
         open_trade = {
             "ticker":           ticker,
@@ -670,7 +675,14 @@ def _metrics(trades: list[dict], equity_curve: list[float], capital: float) -> d
         t0   = pd.Timestamp(trades[0]["ts_open"])
         t1   = pd.Timestamp(trades[-1].get("ts_close", trades[-1]["ts_open"]))
         days = max((t1 - t0).days, 1)
-        ann_ret = (equity_curve[-1] / capital) ** (365.0 / days) - 1
+        import math
+        ratio = equity_curve[-1] / capital
+        if ratio <= 0:
+            ann_ret = -1.0  # total ruin
+        else:
+            ann_ret = ratio ** (365.0 / days) - 1
+            if math.isnan(ann_ret) or math.isinf(ann_ret):
+                ann_ret = 0.0
     except Exception:
         pass
 
@@ -679,7 +691,7 @@ def _metrics(trades: list[dict], equity_curve: list[float], capital: float) -> d
     return {
         "n_trades":          n,
         "win_rate":          round(win_rate, 4),
-        "sharpe":            round(sharpe, 3),
+        "sharpe":            round(float(sharpe), 3),
         "max_drawdown":      round(max_dd, 4),
         "profit_factor":     round(profit_factor, 3),
         "annualised_return": round(ann_ret, 4),

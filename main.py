@@ -292,6 +292,17 @@ def analyse_asset(
 
 
 # ── ML training ───────────────────────────────────────────────────────────────
+def _exec_tf_for_ticker(ticker: str) -> tuple[str, str]:
+    """Return (execution_timeframe, max_period) for ML training, matching live execution TF."""
+    strategies_cfg = CFG.get("strategies", {})
+    for st in strategies_cfg.values():
+        if isinstance(st, dict) and st.get("ticker") == ticker and st.get("enabled", True):
+            tf = st.get("timeframes", {}).get("execution", "1h")
+            period = "60d" if tf == "15m" else "2y"
+            return tf, period
+    return "1h", "2y"  # default
+
+
 def train_models(C: dict) -> None:
     all_tickers = C["scanner"].get_candidates() if "scanner" in C else \
         CFG["assets"].get("commodities", []) + CFG["assets"].get("equities", [])
@@ -300,7 +311,9 @@ def train_models(C: dict) -> None:
 
     for ticker in all_tickers:
         try:
-            df_raw = C["market"].get_ohlcv(ticker, "1h", "max")
+            train_tf, train_period = _exec_tf_for_ticker(ticker)
+            logger.info(f"Training ML for {ticker} on {train_tf} bars (period={train_period})")
+            df_raw = C["market"].get_ohlcv(ticker, train_tf, train_period)
             df = C["preprocessor"].transform(df_raw)
             df_daily = C["market"].get_ohlcv(ticker, "1d", "60d")
             micro = C["micro"].get(ticker)
@@ -794,13 +807,21 @@ def run_live(paper: bool = False) -> None:
 
 
 def run_backtest(ticker: str) -> None:
+    _ticker_map = {"QQQ": "nasdaq", "QLD": "nasdaq", "SPY": "spy", "SSO": "spy", "NQ=F": "nq"}
     day_trade_tickers = (
         CFG["assets"].get("commodities", []) +
         CFG["assets"].get("equities", [])
     )
-    if ticker in day_trade_tickers:
+    # Also resolve strategy tickers (QLD/SSO may not be in assets list)
+    _strategy_tickers = {
+        st.get("ticker"): key
+        for key, st in CFG.get("strategies", {}).items()
+        if isinstance(st, dict) and st.get("ticker")
+    }
+    _ticker_map.update({v: k for k, v in _strategy_tickers.items()})
+
+    if ticker in day_trade_tickers or ticker in _ticker_map:
         from backtesting.backtest_daytrading import BacktestDayTrading
-        _ticker_map = {"QQQ": "nasdaq", "SPY": "spy", "NQ=F": "nq"}
         strategy_key = _ticker_map.get(ticker, "nasdaq")
         results = BacktestDayTrading(CFG).run(ticker, strategy_key=strategy_key, plot=True)
     else:
