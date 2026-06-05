@@ -24,7 +24,7 @@ import pandas as pd
 
 def compute_volume_profile(
     df: pd.DataFrame,
-    n_bins: int = 100,
+    n_bins: int = 200,
 ) -> tuple[float, float, float]:
     """
     Compute Volume Profile: POC, VAH, VAL from OHLCV data.
@@ -48,10 +48,15 @@ def compute_volume_profile(
     bins     = np.linspace(price_low, price_high, n_bins + 1)
     vol_hist = np.zeros(n_bins)
 
-    for _, row in df.iterrows():
-        lo  = float(row["low"])
-        hi  = float(row["high"])
-        vol = float(row["volume"])
+    # Numpy array iteration — avoids pandas iterrows() Series overhead (~10x faster)
+    lo_arr  = df["low"].to_numpy(dtype=float)
+    hi_arr  = df["high"].to_numpy(dtype=float)
+    vol_arr = df["volume"].to_numpy(dtype=float)
+
+    for k in range(len(lo_arr)):
+        vol = vol_arr[k]
+        lo  = lo_arr[k]
+        hi  = hi_arr[k]
         if vol <= 0 or hi <= lo:
             continue
         lo_idx = max(0, int((lo - price_low) / bin_size))
@@ -75,14 +80,17 @@ def compute_volume_profile(
         can_high = hi_idx < n_bins - 1
         if not can_low and not can_high:
             break
-        add_low  = vol_hist[lo_idx - 1] if can_low  else 0.0
-        add_high = vol_hist[hi_idx + 1] if can_high else 0.0
+        # Use -1.0 sentinel for unavailable side so available side always wins.
+        # Bug without this: both sides 0, can_high=False → 0>=0 → expand high
+        # forever past array bounds → infinite loop.
+        add_low  = vol_hist[lo_idx - 1] if can_low  else -1.0
+        add_high = vol_hist[hi_idx + 1] if can_high else -1.0
         if add_high >= add_low:
-            hi_idx  += 1
-            cumvol  += add_high
+            hi_idx += 1
+            cumvol += vol_hist[hi_idx]
         else:
-            lo_idx  -= 1
-            cumvol  += add_low
+            lo_idx -= 1
+            cumvol += vol_hist[lo_idx]
 
     vah = float(bins[hi_idx + 1])
     val = float(bins[lo_idx])

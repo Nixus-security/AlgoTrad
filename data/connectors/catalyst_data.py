@@ -1,6 +1,5 @@
 """
-Crypto catalyst data: Fear & Greed index + news spike volume.
-No earnings, analyst upgrades, or SEC filings for crypto.
+Catalyst data: Fear & Greed index + news spike volume.
 Sources: alternative.me (Fear & Greed — free), NewsAPI.
 """
 from __future__ import annotations
@@ -13,21 +12,18 @@ from utils.logger import logger
 _FNG_URL = "https://api.alternative.me/fng/?limit=1"
 _HEADERS = {"User-Agent": "AlgoTrad algotrad-bot@example.com"}
 
-_TICKER_TO_NAME = {
-    "BTC-USD": "Bitcoin",
-    "SOL-USD": "Solana",
-}
+_TICKER_TO_NAME: dict[str, str] = {}  # map ticker → news search term (equity names added as needed)
 
 
 @dataclass
 class CatalystData:
     ticker: str
-    earnings_days_away: int | None  # always None for crypto
-    has_recent_earnings: bool        # always False for crypto
-    analyst_sentiment: float         # always 0.0 for crypto
-    recent_upgrades: int             # always 0
-    recent_downgrades: int           # always 0
-    sec_8k_score: float              # always 0.0 for crypto
+    earnings_days_away: int | None
+    has_recent_earnings: bool
+    analyst_sentiment: float
+    recent_upgrades: int
+    recent_downgrades: int
+    sec_8k_score: float
     news_spike_score: float          # 0–1: news volume last 24h
     catalyst_score: float            # composite 0–1
     fear_greed_value: int            # 0 (extreme fear) – 100 (extreme greed)

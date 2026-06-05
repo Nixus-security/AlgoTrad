@@ -1,0 +1,18 @@
+{
+  "ticker": "GC=F",
+  "adjustments": {
+    "blocked_setups": [
+      "vwap_pullback"
+    ],
+    "blocked_sessions": [
+      "ny"
+    ]
+  },
+  "recommendations": [
+    "BLOCK setup 'vwap_pullback' \u2014 WR=35% PF=0.31 (17 trades)",
+    "BLOCK session 'ny' \u2014 avg_pnl=-18.82$ (17 trades)",
+    "POC TRADES OUTPERFORM \u2014 at_poc WR=42% vs no_poc WR=20%. Consider requiring POC for entry.",
+    "DXY bearish (Gold-bullish) trades \u2014 WR=35% avg=-18.82$",
+    "HIGH TIMEOUT RATE 82% \u2014 many trades not hitting TP/SL within 12h. Consider widening TP or tightening SL multiplier."
+  ]
+}

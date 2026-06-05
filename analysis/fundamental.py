@@ -50,7 +50,7 @@ class FundamentalAnalyzer:
         fed_rate = snap.get("fed_rate")
         spread = snap.get("yield_spread")
 
-        # Rising rates → bearish for risk assets (equities + crypto)
+        # Rising rates → bearish for equities
         if fed_rate is not None:
             if fed_rate < 3.0:
                 score += 0.3

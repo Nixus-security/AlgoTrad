@@ -1,98 +1,96 @@
 # ─── Assets universe ──────────────────────────────────────────────────────────
-# Crypto-only mode: BTC-USD and SOL-USD via yfinance (24/7 markets).
 assets:
-  crypto:
-    - BTC-USD
-    - SOL-USD
-  etfs: []      # unused — BTC regime replaces SPY regime
-  forex: []     # disabled
+  commodities: []   # Gold removed
+  equities:
+    - QQQ      # Nasdaq-100 ETF
+    - SPY      # S&P 500 ETF
+    - NQ=F     # Nasdaq-100 futures (E-mini)
 
 # ─── Scanner ──────────────────────────────────────────────────────────────────
-# Disabled: CryptoWatcher returns fixed symbols, no dynamic scanning.
 scanner:
   enabled: false
 
+# ─── Interactive Brokers (Path A) ─────────────────────────────────────────────
+ib:
+  enabled: false
+  host: "127.0.0.1"
+  port: 4002
+  client_id: 1
+  account: ""
+  market_data_type: 1
+  use_for_data: true
+  use_for_orders: true
+  readonly: false
+
 # ─── Risk profile ─────────────────────────────────────────────────────────────
-# Tuned for BTC/SOL: tight spreads, 24/7 markets, high volatility OK.
 risk:
-  # Signal quality filters
   min_sharpe: 0.5
   confidence_threshold: 0.68
-  max_drawdown_pct: 12.0     # wider DD tolerance for crypto volatility
+  max_drawdown_pct: 10.0
 
-  # Microstructure filters
-  max_spread_pct: 0.005      # 0.5% — BTC/SOL have very tight spreads
-  min_avg_volume: 0          # disabled — BTC/SOL always liquid
+  max_spread_pct: 0.005
+  min_avg_volume: 0
   min_liquidity_score: 0.10
-  min_rvol: 0.5              # 24/7 market: no morning spike dynamic
+  min_rvol: 0.5
 
-  # Breakout quality filters
   max_fake_breakout_prob: 0.65
-  max_volatility_percentile: 0.98   # crypto inherently more volatile
+  max_volatility_percentile: 0.98
 
-  # Position sizing
   atr_stop_multiplier: 2.0
-  max_position_pct: 0.01     # max 1% of capital per trade
-  max_loss_per_trade_pct: 0.005  # max 0.5% loss per trade
+  max_position_pct: 0.01
+  max_loss_per_trade_pct: 0.005
 
-  # Kill switch — selective signals
-  max_daily_drawdown_pct: 3.0    # wider daily DD limit for crypto
-  max_signals_per_day: 8         # more signals possible (24/7)
-  max_signals_per_hour: 2        # Telegram rate-limit
+  max_daily_drawdown_pct: 3.0
+  max_signals_per_day: 6        # 3 per strategy × 2 (QQQ + SPY)
+  max_signals_per_hour: 2
 
 # ─── Timeframes ───────────────────────────────────────────────────────────────
 timeframes:
-  scalping: "15m"     # crypto: 15m more reliable than 5m (less noise)
   day_trading: "1h"
-  trend: "1d"
+  trend: "4h"
+  daily: "1d"
 
 # ─── ML models ────────────────────────────────────────────────────────────────
 ml:
-  lookback_window: 60         # 30→60 : plus de contexte temporel
-  lstm_units: [64, 32]        # [128,64]→[64,32] : moins de paramètres = moins d'overfitting
-  dropout: 0.4                # 0.3→0.4 : régularisation plus forte
-  epochs: 25                  # 60→80 : plus d'itérations avec early stopping
+  lookback_window: 60
+  lstm_units: [64, 32]
+  dropout: 0.4
+  epochs: 25
   batch_size: 32
   retrain_interval_hours: 24
-  label_threshold: 0.005      # 0.3%→0.5% : skip zone encore plus ambiguë
-  label_horizon: 5            # 3→5 bars : moves plus décisifs = labels plus propres
+  label_threshold: 0.005
+  label_horizon: 5
 
 # ─── Quantum optimizer ────────────────────────────────────────────────────────
 quantum:
   reps: 3
   shots: 1024
   backend: "aer_simulator"
-  max_features_selected: 10     # feature selection top-k
+  max_features_selected: 10
 
 # ─── Gemini NLP analyzer ──────────────────────────────────────────────────────
-# Clé API gratuite : https://aistudio.google.com/app/apikey
-# export GEMINI_API_KEY="ta_cle_ici"  dans ~/.bashrc ou .env
 gemini:
   enabled: true
-  model: "gemini-2.0-flash"      # gratuit — 15 req/min, 1M tokens/jour
-  cache_minutes: 30              # cache résultat par ticker 30 min
-  max_texts_per_ticker: 12       # max articles envoyés à Gemini par call
+  model: "gemini-2.0-flash"
+  cache_minutes: 30
+  max_texts_per_ticker: 12
 
 # ─── Signal fusion weights (overridden by QAOA at runtime) ───────────────────
 signal_weights:
-  # Calibrated from OOS training results (2026-06-02):
-  # XGB best_iter=14 OOS=50.9%  LGB best_iter=2 OOS=50.6% → ensemble ≈ bruit
-  # LSTM OOS=54.6% gap=-0.027 → signal propre, poids maintenu
-  # Gemini NLP + TA rule-based = sources fiables → poids renforcés
-  technical: 0.25        # renforcé (rule-based VP/VWAP/CVD = signal fort)
-  ml_prediction: 0.25    # maintenu (LSTM OOS=54.6%)
+  technical: 0.25
+  ml_prediction: 0.25
   statistical: 0.15
-  fundamental: 0.05      # réduit (FRED macro = daily, peu actionnable intraday)
-  ensemble: 0.05         # réduit 0.15→0.05 (XGB/LGB OOS ≈ random)
-  nlp: 0.25              # renforcé (Gemini fiable sur catalysts)
+  fundamental: 0.05
+  ensemble: 0.05
+  nlp: 0.25
 
 # ─── Backtesting ──────────────────────────────────────────────────────────────
 backtest:
-  start_date: "2019-01-01"   # 5+ years — covers 2019 bull, 2020 crash, 2021 bull, 2022 bear, 2023-24 recovery
+  start_date: "2019-01-01"
   end_date: "2024-12-31"
   initial_capital: 9000
   commission_pct: 0.001
-  slippage_pct: 0.0008        # 0.08% — matches paper broker (realistic metrics)
+  slippage_pct: 0.0008
   walk_forward_splits: 5
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
@@ -101,88 +99,96 @@ logging:
   rotation: "1 day"
   retention: "30 days"
 
-# ─── Three-Strategy Configuration ─────────────────────────────────────────────
-# Each strategy has independent capital of 8 871 and 1% risk per trade (88.71).
-# R:R = 1:2 strict for all three.
+# ─── Two-Strategy Configuration ───────────────────────────────────────────────
+# Each strategy: independent capital 8 871, 1% risk per trade (88.71), R:R 1:2.
+# Max 3 trades/day per strategy (6 total).
 
 strategies:
 
-  # ── Strategy 1 : Swing Trading ─────────────────────────────────────────────
-  swing:
-    enabled: true
+  # ── Strategy 1 : Day Trading Gold (GC=F) ───────────────────────────────────
+  gold:
+    enabled: false  # Gold removed
     capital: 8871.0
-    risk_pct: 0.01            # 1% = 88.71 per trade
-    rr_ratio: 2.0
-    max_trades_week: 5
-    timeframe: "1d"
-    vp_lookback: 20           # bars for Volume Profile calculation
-    min_balance_days: 10      # AMT balancing phase window
-    breakout_vol_mult: 1.5    # volume ≥ 1.5× 20-day avg for breakout validation
-    breakout_pct: 0.005       # 0.5% beyond POC to qualify as breakout
-    min_confluence: 2         # min confluence checks required (max 4)
-    tickers:                  # Small/Mid Cap universe — adjust freely
-      - "AFRM"
-      - "SOFI"
-      - "UPST"
-      - "RIVN"
-      - "LCID"
-      - "HOOD"
-      - "IONQ"
-      - "ACHR"
-      - "JOBY"
-      - "CELH"
-      - "SMCI"
-      - "MARA"
-      - "CLSK"
-      - "WULF"
-      - "IREN"
-
-  # ── Strategy 2 : Day Trading Forex + Gold ──────────────────────────────────
-  day_trading:
-    enabled: true
-    capital: 8871.0
-    risk_pct: 0.01
-    rr_ratio: 2.0
+    risk_pct: 0.0113          # 1.13% = ~100€ risk per trade (SL hit = -100€)
+    rr_ratio: 2.0             # TP = 2×SL = +200€ per win
     max_trades_day: 3
     timeframes:
       trend: "4h"
-      execution: "1h"
-    vp_bars_4h: 20            # 20 × 4H bars ≈ 3 trading days
-    min_confluence: 3         # min confluence checks required (max 5)
-    atr_sl_mult: 1.5          # SL = 1.5 × ATR(14, 1H)
-    vwap_tol: 0.001           # 0.1% band — "at VWAP" zone
-    tickers:
-      - "EURUSD=X"
-      - "GBPUSD=X"
-      - "USDJPY=X"
-      - "GC=F"                # Gold futures (NY session only)
+      execution: "1h"         # 1H — 15m gives only 5 signals/60d. 1H has 2yr backtest data.
+    vp_bars_4h: 20
+    min_confluence: 6         # daily proxy: conf=6 WR=71% avg=+52€ vs conf=5 WR=33% avg=-4€
+    atr_sl_mult: 1.5
+    vwap_tol: 0.001           # 0.1% band around VWAP
+    ticker: "GC=F"
+    use_dxy: true             # DXY required — filters out SELL in Gold bull trend (10yr proxy: Sharpe +1.025 with DXY vs -4.0 without)
+    require_dxy: true         # DXY bearish = BUY only. Removes SELL Gold (WR=0% over 10yr)
+    blocked_setups:           # poc_rejection confirmed losing (PF=0.23 precision, 0.53 daily)
+      - "poc_rejection"
     sessions_utc:
-      london: [7, 10]
-      ny:     [13, 16]
+      ny: [13, 20]            # Full NY session (13h–20h UTC): more signals + positions run to natural end
 
-  # ── Strategy 3 : Scalping HFQ ──────────────────────────────────────────────
-  scalping_hfq:
+  # ── Strategy 2 : Day Trading Nasdaq (QQQ) ──────────────────────────────────
+  nasdaq:
     enabled: true
-    capital: 8871.0
-    risk_pct: 0.01
-    rr_ratio: 2.0
-    # NOTE: yfinance minimum = "1m". Upgrade data connector to 1s feed
-    #       (Interactive Brokers TWS / Rithmic / CQG) for true HFQ operation.
-    timeframe: "1m"
-    # SPY: volume réel massif (~400k/bar 1m) → absorption/CVD fiables
-    # ES=F: futures CME valide mais volume yfinance trop faible (~475/bar)
-    # Pour revenir à ES=F: changer ticker + vwap_tol_pts: 2.0
+    capital: 4435.0
+    risk_pct: 0.05            # 5% = ~221€ risk/trade · TP ~553€ · WARNING: 5 consec losses = -25% capital
+    rr_ratio: 2.5             # 2.5 validated: Sharpe 2.53, PF 1.40, Ann 48% (precision 0.2y)
+    max_trades_day: 3
+    timeframes:
+      trend: "4h"
+      execution: "15m"        # 15m bars — 4x more signals/session, tighter SL/TP (ATR smaller)
+    vp_bars_4h: 20
+    min_confluence: 5         # conf=4 avg=+2.62$ PF=1.04 — no edge. conf=5 avg=+188$ WR=100%
+    atr_sl_mult: 1.5
+    vwap_tol: 0.001
+    ticker: "QQQ"
+    require_dxy: false        # No DXY filter for equity
+    blocked_setups: []        # poc_rejection block was based on Gold data — not applicable to QQQ
+    sessions_utc:
+      ny: [14, 20]            # NYSE 09:30–16:00 ET ≈ 13:30–20:00 UTC (EDT)
+
+  # ── Strategy 3 : Day Trading S&P 500 ETF (SPY) ─────────────────────────────
+  spy:
+    enabled: true
+    capital: 4435.0
+    risk_pct: 0.05            # 5% = ~221€ risk/trade · TP ~553€ · WARNING: 5 consec losses = -25% capital
+    rr_ratio: 2.5             # 2.5 validated: Sharpe 1.94, PF 1.29, Ann 27% (precision 0.2y)
+    max_trades_day: 3
+    timeframes:
+      trend: "4h"
+      execution: "15m"        # 15m bars — 4x more signals/session, tighter SL/TP (ATR smaller)
+    vp_bars_4h: 20
+    min_confluence: 5         # align with QQQ — conf=5 WR=50%+ PF=1.65 vs conf=4 PF=1.05
+    atr_sl_mult: 1.5
+    vwap_tol: 0.001
     ticker: "SPY"
-    vp_lookback: 30           # bars for session Volume Profile
-    spike_mult: 2.5           # volume × spike_mult = absorption threshold
-    min_vol_ratio: 1.5        # minimum volume ratio to qualify signal
-    vwap_tol_pts: 0.50        # ±0.50$ proximity (SPY ~756$, pas points ES)
-    sl_ticks: 3               # SPY: SL = SPY_SL_POINTS = 0.75$  |  ES=F: 3 ticks
-    tp_ticks: 6               # SPY: TP = SPY_TP_POINTS = 1.50$  |  ES=F: 6 ticks
-    max_hold_bars: 30         # exit at 30 bars if neither TP nor SL
-    circuit_breakers:
-      consecutive_losses: 3
-      pause_bars: 10
-      max_daily_dd_pct: 0.03    # $266.13
-      max_daily_profit_pct: 0.05 # $443.55
-      avoid_open_bars: 5
+    use_dxy: false
+    require_dxy: false
+    blocked_setups:
+      - "poc_rejection"       # poc_rejection SPY precision: WR=44% PF=0.83. vwap_pullback: WR=56% PF=1.18.
+    sessions_utc:
+      ny: [14, 20]
+
+  # ── Strategy 4 : Day Trading Nasdaq Futures (NQ=F) ─────────────────────────
+  nq:
+    enabled: false
+    capital: 2957.0
+    risk_pct: 0.05            # 5% = ~221€ risk/trade · align with QQQ/SPY
+    rr_ratio: 2.5             # 2.5 validated: Sharpe 6.83, PF 2.94, WR 71% (precision 2y)
+    max_trades_day: 3
+    timeframes:
+      trend: "4h"
+      execution: "1h"         # 1H — 15m gives only 4 signals in 60d. SELL bias needs hourly structure.
+    vp_bars_4h: 20
+    min_confluence: 5         # conf=5 WR=71% PF=2.94 vs conf=4 WR=58% PF=1.64
+    atr_sl_mult: 1.5
+    vwap_tol: 0.001
+    ticker: "NQ=F"
+    use_dxy: false
+    require_dxy: false
+    blocked_setups:
+      - "vwap_pullback"       # WR=43% PF=0.74 on NQ — terrible. Only poc_rejection.
+    blocked_directions:
+      - "BUY"                 # BUY NQ=F: WR=43% PF=0.62. SELL: WR=62% PF=1.77 — only SHORT.
+    sessions_utc:
+      ny: [14, 20]            # Mirror NYSE hours (NQ futures trade 23/5 but signals only NY)
